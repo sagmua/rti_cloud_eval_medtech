@@ -1,0 +1,38 @@
+{
+  "name": "medtech-web-tabs",
+  "displayName": "MedTech Web Tabs",
+  "description": "Opens MedTech device UIs in a 2x2 VS Code editor grid.",
+  "version": "0.1.2",
+  "publisher": "rti",
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onUri",
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "rti.medtech.openOrchestrator",
+        "title": "Digital Operating Room: Open Orchestrator"
+      }
+    ]
+  },
+  "main": "./extension.js",
+  "files": [
+    "extension.js",
+    "device-launcher.js",
+    "README.md"
+  ],
+  "scripts": {
+    "package": "vsce package --allow-missing-repository --skip-license",
+    "test": "node --test extension.test.js"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "3.6.2"
+  }
+}

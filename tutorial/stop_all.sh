@@ -11,7 +11,6 @@ import shlex
 import signal
 import subprocess
 import sys
-import tempfile
 import time
 import uuid
 
@@ -20,6 +19,7 @@ repo = root / "medtech-reference-architecture"
 scripts = {
     root / "tutorial" / "launch_all.sh",
     root / "tutorial" / "run_digital_or.sh",
+    root / "tutorial" / "medtech_grid.py",
     repo / "modules" / "01-operating-room" / "src" / "Arm.py",
     repo / "modules" / "01-operating-room" / "src" / "PatientMonitor.py",
 }
@@ -53,7 +53,7 @@ def targets():
             if not arguments or arguments[0].startswith("-"):
                 continue
             candidate = Path(arguments[0])
-            if candidate.name not in ("launch_all.sh", "run_digital_or.sh", "launch.py", "Arm.py", "PatientMonitor.py", "ArmController", "Orchestrator", "PatientSensor"):
+            if candidate.name not in ("launch_all.sh", "run_digital_or.sh", "medtech_grid.py", "launch.py", "Arm.py", "PatientMonitor.py", "ArmController", "Orchestrator", "PatientSensor"):
                 continue
             if not candidate.is_absolute():
                 if sys.platform.startswith("linux"):
@@ -94,8 +94,10 @@ while remaining and time.monotonic() < deadline:
         time.sleep(0.1)
 stop(remaining, signal.SIGKILL)
 
-if Path("/app/code-server").is_dir():
-    state_dir = Path(tempfile.gettempdir()) / f"medtech-web-tabs-{os.getuid()}"
+if os.environ.get("MEDTECH_CLOUD") == "1" or Path("/app/code-server").is_dir():
+    sys.path.insert(0, str(root / "tutorial"))
+    from medtech_grid import _tab_state_dir
+    state_dir = _tab_state_dir()
     requests = state_dir / "requests"
     requests.mkdir(parents=True, exist_ok=True)
     hosts = set()

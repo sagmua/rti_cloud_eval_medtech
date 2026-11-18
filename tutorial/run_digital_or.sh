@@ -10,18 +10,21 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$SCRIPT_DIR/../medtech-reference-architecture"
 mode=all
+grid=0
 launch_args=()
 for arg in "$@"; do
   case "$arg" in
     --setup-only) mode=setup ;;
     --launch-only) mode=launch ;;
     --secure) launch_args+=(--security) ;;
+    --vscode) grid=1 ;;
+    --web) grid=0 ;;
     *) launch_args+=("$arg") ;;
   esac
 done
 
 if [[ ! -f "$REPO_DIR/launch.py" ]]; then
-  echo "error: $REPO_DIR is missing. Run ./tutorial/launch_all.sh to initialize the submodule." >&2
+  echo "error: $REPO_DIR is missing. Initialize the medtech-reference-architecture submodule first." >&2
   exit 1
 fi
 
@@ -72,12 +75,23 @@ if [[ "$mode" != launch ]]; then
     python3 -m pip install -q --no-index rti.connext.activated==7.7.0 -f "$NDDSHOME/resource/python_api"
   fi
 
-  echo "Building (C++ targets + Python type support)..."
-  python3 build.py
+  echo "Building Module 01 (C++ targets + Python type support)..."
+  if [[ "${MEDTECH_CLOUD:-0}" == 1 ]]; then
+    if [[ ! -f /opt/medtech-deps/connext-cmake-utils/cmake/Modules/FindRTIConnextDDS.cmake ]]; then
+      echo "error: offline Connext CMake utilities are missing; rebuild the Playground image." >&2
+      exit 1
+    fi
+    python3 build.py -DFETCHCONTENT_SOURCE_DIR_RTICONNEXTDDS-CMAKE-UTILS=/opt/medtech-deps/connext-cmake-utils -- --target module-01
+  else
+    python3 build.py -- --target module-01
+  fi
 fi
 
 if [[ "$mode" == setup ]]; then
   exit 0
 fi
 echo "Launching Digital Operating Room..."
+if [[ "$grid" == 1 ]]; then
+  exec python3 "$SCRIPT_DIR/medtech_grid.py" "${launch_args[@]}"
+fi
 exec python3 launch.py 01-operating-room "${launch_args[@]}"

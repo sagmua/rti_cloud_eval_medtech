@@ -1,6 +1,13 @@
 # Clean installation: Digital Operating Room
 
-This directory is the canonical home of the cloud image recipe. Run host commands
+**Historical standalone recipe:** the commands and measurements below describe
+the original standalone handoff. New hosted integration uses RTI Cloud's
+Playground Dockerfile, CLOUD-701 submodule initialization, offline SDK CMake utilities,
+and pre-IDE registration of the helper-owned extension. Do not follow these old bootstrap
+commands for hosted provisioning. See the [current tutorial guide](../tutorial/README.md).
+The hash-locked requirements remain a versioned input to the platform image.
+
+This directory records the original standalone image recipe. Run host commands
 from this directory, normally `cloud_eval_medical/docker`. Obtain the original
 `playground-20260709a.tar.gz` separately from authorized RTI storage and place it
 here for the commands below. It is excluded from Git and the Docker build context.
@@ -17,7 +24,7 @@ always uses port **8080**.
 - This runbook: clean installation, acceptance checks, backups, and recovery.
 
 The historical `../cloud_eval_image` directory is no longer the source of truth.
-Keep future image changes here and commit/push them with the tutorial changes.
+Hosted image changes now belong in the platform repository.
 The current development volume is `medical-playground-cloud-test-config`; do not
 remove it when performing a clean-install test.
 

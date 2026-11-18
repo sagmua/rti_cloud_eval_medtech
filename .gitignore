@@ -7,3 +7,5 @@ __pycache__/
 .env
 rti_license.dat
 /docker/backups/
+node_modules/
+.pytest_cache/

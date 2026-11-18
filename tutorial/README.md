@@ -9,9 +9,11 @@ yet validated.
 
 - [TUTORIAL.md](TUTORIAL.md): the ten guided tutorial steps and source links.
 - [INTEGRATION_NOTES.md](INTEGRATION_NOTES.md): hosted deployment requirements.
-- [launch_all.sh](launch_all.sh): initialize the pinned submodule, set up, build,
+- [launch_all.sh](launch_all.sh): initialize the pinned submodule if absent, set up, build,
   and start all five applications in the background.
-- [run_digital_or.sh](run_digital_or.sh): setup/build and foreground launch helper.
+- [run_digital_or.sh](run_digital_or.sh): existing setup/build and foreground launch helper.
+- [medtech_grid.py](medtech_grid.py): helper-owned grid/IPC process adapter; reuses
+  application commands from the source instead of requiring extension hooks there.
 - [stop_all.sh](stop_all.sh): stop this checkout's demo processes without stopping
   the browser IDE or container.
 - [restart_all.sh](restart_all.sh): stop and relaunch; forwards launcher options.
@@ -21,8 +23,8 @@ yet validated.
 Run from the repository root with licensed Connext 7.7 installed:
 
 ```bash
-git clone --recurse-submodules ssh://git@bitbucket.rti.com:7999/~fporcel/cloud_eval_medical.git
-cd cloud_eval_medical
+git clone git@github.com:sagmua/rti_cloud_eval_medtech.git
+cd rti_cloud_eval_medtech
 ./tutorial/launch_all.sh --vscode
 ```
 
@@ -32,39 +34,43 @@ and Patient Monitor in a 2x2 editor grid. Patient Sensor is headless. Desktop VS
 Code mode packages/installs the bundled device extension using Node.js/npm and
 the `code` CLI; `--web` opens ordinary browser tabs without those dependencies.
 Add `--secure` only after generating the
-security artifacts described in the [top-level setup guide](../README.md).
+security artifacts described in the [source setup guide](../medtech-reference-architecture/README.md).
 
 ## Cloud Workspace
 
-The [cloud image recipe](../docker/README_cloud_eval_image.md) provides web-only
-device apps and sets `MEDTECH_VENV=/opt/medtech-venv` to reuse the base's licensed
-Connext 7.7 Python API.
+RTI Cloud owns the hosted Playground image. It supplies `/opt/medtech-venv`,
+the existing licensed Connext 7.7 Python API, and an offline view of the SDK's CMake utilities.
+Provisioning initializes the MedTech submodule, preserves the complete
+wrapper/Git metadata, and links this helper's versioned extension before
+code-server starts. No npm, pip, or source dependency download occurs at launch.
 
-Open `http://127.0.0.1:8080/?folder=/config/workspace`, accept Workspace Trust,
-open [TUTORIAL.md](TUTORIAL.md), and run in the IDE terminal:
+Open the provisioned IDE, accept Workspace Trust, open
+[TUTORIAL.md](TUTORIAL.md), and run in its terminal:
 
 ```bash
 cd /config/workspace
-./tutorial/launch_all.sh
+./tutorial/launch_all.sh --cloud
 ```
 
-Cloud mode is the default; `--cloud` remains an explicit alias. It installs the
-device-only extension and opens Arm Controller / Orchestrator above Arm / Patient
-Monitor in the editor grid. Reload the browser IDE after installing or updating
-the extension. No tutorial panel or activity-bar icon is registered. Select the
+Cloud mode is the default. It checks extension activation before building and
+opens Arm Controller / Orchestrator above Arm / Patient Monitor in the editor grid.
+A fresh provisioned workspace should not require an IDE reload; an already
+running IDE upgraded manually may need one. No tutorial panel or activity-bar icon is registered. Select the
 intended IDE window before launching if multiple windows are open. The printed
-proxy URLs are also available for ordinary browser tabs:
+proxy URLs are also available for ordinary browser tabs. For example, with
+`MEDTECH_CLOUD_URL=https://eval.example.test/workspaces/cpg-generated/ide`:
 
-- Orchestrator: `http://127.0.0.1:8080/proxy/8090/`
-- Arm Controller: `http://127.0.0.1:8080/proxy/8091/`
-- Arm: `http://127.0.0.1:8080/proxy/8092/`
-- Patient Monitor: `http://127.0.0.1:8080/proxy/8093/`
+- Orchestrator: `<MEDTECH_CLOUD_URL>/proxy/8090/`
+- Arm Controller: `<MEDTECH_CLOUD_URL>/proxy/8091/`
+- Arm: `<MEDTECH_CLOUD_URL>/proxy/8092/`
+- Patient Monitor: `<MEDTECH_CLOUD_URL>/proxy/8093/`
 
 Only the authenticated code-server port needs publishing. Set
-`MEDTECH_CLOUD_URL` to the externally accessible IDE base URL, including any path
-prefix, when it differs from `http://127.0.0.1:8080`. Hosted deployments must
-validate matching proxy routing. Keep platform authentication in front of remote
-proxy routes; the sample Docker port remains bound to localhost.
+`MEDTECH_CLOUD_URL` in the container environment before IDE startup, including
+the public path prefix. There is no implicit localhost fallback. Hosted
+deployments must validate matching proxy routing and keep platform authentication
+in front of every proxy route. IPC/ownership state is scoped to the canonical
+source checkout, so unrelated IDE folders cannot consume launch requests.
 
 ## Stop And Restart
 
@@ -78,7 +84,7 @@ Stop or restart the complete demo with:
 
 ```bash
 ./tutorial/stop_all.sh
-./tutorial/restart_all.sh
+./tutorial/restart_all.sh --cloud
 ```
 
 Use `./tutorial/restart_all.sh --web` for local browser mode, and add `--secure`

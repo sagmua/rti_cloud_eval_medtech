@@ -1,14 +1,42 @@
-# Digital Operating Room Cloud Eval Handoff
+# MedTech Cloud Evaluation Helper
 
-This repo contains the [Digital Operating Room tutorial](tutorial/TUTORIAL.md) and a pinned checkout of the [MedTech Reference Architecture](https://github.com/rticommunity/rticonnextdds-medtech-reference-architecture) with browser-based device UIs. Use the pinned submodule commit, not the branch tip.
+This repository supports running the
+[MedTech Reference Architecture](https://github.com/rticommunity/rticonnextdds-medtech-reference-architecture)
+in Cloud Evaluation. It supplies the Digital Operating Room tutorial, lifecycle
+helpers, the device-grid extension, and a pinned source submodule. Applications
+and their build system remain in the reference architecture. The submodule tracks
+`feature/CLOUD-701`, pinned at `1c3de45f3b21f1964b6472f45c56128d71692be9`;
+normal initialization uses that commit, not a moving branch tip.
+
+The helper is MedTech-specific, not a shared repository or framework for other
+industry examples. Its original layout is retained:
+
+```text
+tutorial/                        # Tutorial and launch/stop/restart helpers
+vscode-extension/                # Helper-owned VS Code/code-server device grid
+medtech-reference-architecture/  # Pinned source submodule
+docker/                          # Dependency lock and historical standalone recipe
+```
+
+Clone and launch locally:
+
+```bash
+git clone git@github.com:sagmua/rti_cloud_eval_medtech.git
+cd rti_cloud_eval_medtech
+git submodule update --init --recursive -- medtech-reference-architecture
+./tutorial/launch_all.sh --vscode
+```
+
+See the [tutorial guide](tutorial/README.md) for cloud requirements.
 
 ## Cloud Image And Recovery
 
-The version-controlled [cloud image runbook](docker/README_cloud_eval_image.md)
-contains the Dockerfile, pinned Python requirements, recorded image/archive
-identities, port-8080 clean-install procedure, acceptance checks, and image plus
-workspace-volume backup/restore commands. Use `docker/` as the canonical image
-recipe, not the historical sibling directory. Licensed archives and volume
+Hosted packaging belongs to RTI Cloud's Playground image, not this wrapper.
+The [historical standalone image runbook](docker/README_cloud_eval_image.md)
+records the earlier image/archive identities and backup/restore procedures;
+its original bootstrap commands are not the hosted recipe.
+The hash-locked Python requirements remain a versioned image-build input.
+Licensed archives and volume
 backups must be kept in authorized external storage; they are not included in Git.
 The tutorial is a Markdown file, and the four device UIs run in a 2x2 editor grid
 using the bundled device-only extension, without a tutorial panel, desktop window,
@@ -26,7 +54,7 @@ There are two different dependency sets: **building from source** and **running 
 
 These belong on a developer machine or in a CI/builder image, not necessarily in the user workspace:
 
-- Git (access to this Bitbucket repo and the public GitHub MedTech submodule), Bash, and network access to PyPI for the first run.
+- Git (this public GitHub wrapper and its public MedTech submodule), Bash, and network access to PyPI for local setup. Hosted setup uses preinstalled dependencies.
 - Licensed RTI Connext DDS Professional 7.7.0, including its C++ libraries, build tools, and the `rti.connext.activated` Python wheel under `$NDDSHOME/resource/python_api`. Set `NDDSHOME` and source the matching `rtisetenv_<arch>` script; the launcher auto-detects `/Applications/rti_connext_dds-7.7.0` on macOS. The script cannot download or license Connext.
 - Python 3.10+ with `pip` and `venv`; CMake 3.17+; and a C++17 compiler. GTK development libraries and `pkg-config` are not needed by Module 01.
 
@@ -39,9 +67,25 @@ These remain necessary with the current application code, even if the C++ applic
 - Python 3.10+ and the installed Python packages listed below, including the Connext 7.7.0 Python API. `pip` and `venv` are provisioning tools, not application requirements once the environment is prepared.
 - The Connext C++ shared libraries used by the binaries, compatible OS/C++ runtime libraries, and the required runtime licensing configuration. Precompilation does not remove licensing requirements; a runtime-only Connext layout and redistribution rights must be validated with RTI.
 - No GTK/Qt/display stack is needed for Module 01. Its C++ binaries no longer link GTK, and its Python backends no longer import desktop libraries.
-- VS Code/code-server with the bundled device-grid extension, and a Markdown viewer for the tutorial. Cloud mode installs the extension files directly; desktop `--vscode` mode needs Node.js/npx and the `code` CLI for packaging/installation. `--web` opens local browser tabs without the extension. Native device windows are no longer supported. Hosted template provisioning still requires platform validation.
+- VS Code/code-server with the bundled device-grid extension, and a Markdown viewer for the tutorial. Cloud provisioning registers the extension before IDE startup; desktop `--vscode` mode needs Node.js/npx and the `code` CLI for packaging/installation. `--web` opens local browser tabs without the extension. Native device windows are no longer supported. Hosted template provisioning still requires platform validation.
 
-The local launcher creates a virtual environment and installs `argcomplete>=3.1`. It installs `rti.connext.activated` from the local Connext installation separately. Cloud mode checks the preinstalled environment instead. This branch contains only Module 01; NAT tooling and its `pystun3`/`requests` dependencies have been removed. Python transitive dependencies are resolved by `pip`.
+The local launcher creates a virtual environment and installs the source's Python
+requirements, including NAT-tool dependencies retained for other modules. It installs
+`rti.connext.activated` from the local Connext installation separately. Cloud mode
+checks the preinstalled environment instead and runs only Module 01. The helper
+builds the `module-01` target, which now includes generated Python type support.
+The source remains independently usable with ordinary browser tabs and contains
+no custom VS Code extension.
+
+The helper's [grid adapter](tutorial/medtech_grid.py) reuses the source launcher's
+command/environment resolution. Only IDE-specific process ownership, tab IPC, and
+recovery supervision live here; no DDS application or build implementation is
+duplicated. Run helper regression tests with `python3 -m pytest tests`, and extension
+tests with `npm test --prefix vscode-extension`.
+
+Both browser and IDE-grid sessions keep healthy applications running after a
+device crash. The supervisor reports the failed process once; it does not stop
+the other devices. Grid recovery remains available through Orchestrator.
 
 ### Historical Desktop Dependency Sizes
 
@@ -49,7 +93,7 @@ The following are historical **installed disk footprints**, not RAM use or compr
 
 | Dependency | Build/setup | Prebuilt runtime | Installed size reference |
 | --- | --- | --- | --- |
-| Git | Clone and CMake FetchContent | Not needed if files are bundled; still needed by `launch_all.sh` | 20-60 MiB budget with dependencies; zero added if already present |
+| Git | Clone and CMake FetchContent | Needed by the source pin check in `launch_all.sh` | 20-60 MiB budget with dependencies; zero added if already present |
 | Bash | Setup scripts | Needed by the shell launch scripts | 1-5 MiB budget; zero added if already present |
 | C++17 compiler/toolchain | Required | Not needed; retain OS/C++ runtime libraries | 1.3 GiB measured for macOS command-line tools; Linux builder budget 250-600 MiB |
 | CMake >=3.17 | Required | Not needed | 74 MiB measured |
@@ -78,24 +122,24 @@ Two deployment options need platform-team agreement:
 - **Dedicated runtime workspace image:** simplest co-location of apps and IDE, but still a second image to maintain, patch, distribute, and prewarm. It requires platform support and is not just a new workspace definition.
 - **Application container alongside the existing workspace:** could keep application build/runtime packages out of the base IDE image, but shifts their size into another image rather than eliminating it. Requires supported container orchestration, browser port routing for 8090-8093, DDS networking/discovery configuration, licensing, and process lifecycle management. Do not assume users can start Docker inside the workspace or that DDS discovery works across container networks by default.
 
-Neither prebuilt packaging option is supplied by this repository today. `launch_all.sh` still initializes the submodule and runs the build. Local setup installs Python packages; cloud mode reuses the image environment. For a provisioned environment, `./tutorial/run_digital_or.sh --launch-only --web` skips setup/build and launches only the demo; it still expects the configured virtual environment, `NDDSHOME`, compatible binaries, generated types, configuration, and runtime libraries. A runtime-only image needs a validated entrypoint and layout rather than invoking `launch_all.sh` unchanged.
+Neither prebuilt packaging option is supplied by this repository today. `launch_all.sh` checks the pinned submodule and runs the build. Local setup installs Python packages; cloud mode reuses the image environment. For a provisioned environment, `./tutorial/run_digital_or.sh --launch-only --web` skips setup/build and launches only the demo; it still expects the configured virtual environment, `NDDSHOME`, compatible binaries, generated types, configuration, and runtime libraries.
 
 Before committing to either option, measure on the actual Linux base image: dependency-by-dependency incremental installed size, compressed registry layers to pull, uncompressed image size, and cold versus warm time to the first usable tutorial and all four responsive web UIs. Compare against the base workspace and separate image pull/unpack, provisioning, and application startup. Preinstalling removes session downloads/builds; larger uncached layers can still increase cold startup significantly. Reusing cached base layers and prewarming may help, but no startup-time claim is established yet. Pin the final Python/system dependencies and image digest so size, startup, and maintenance costs are reproducible.
 
 ## Run locally
 
 ```bash
-git clone --recurse-submodules ssh://git@bitbucket.rti.com:7999/~fporcel/cloud_eval_medical.git
-cd cloud_eval_medical
+git clone git@github.com:sagmua/rti_cloud_eval_medtech.git
+cd rti_cloud_eval_medtech
 ./tutorial/launch_all.sh --vscode
 ```
 
-The single launch command also works after a plain `git clone`: it initializes the MedTech submodule at the pinned commit if missing, prepares Python dependencies, builds the C++ apps and Python types, installs the device-only extension, and launches the Digital OR applications in a 2x2 editor grid. Open [tutorial/TUTORIAL.md](tutorial/TUTORIAL.md) for the guided steps; there is no tutorial panel. The submodule checkout is never advanced to the latest branch tip. Existing tracked changes in a checkout at another commit block the update rather than being discarded.
+The single launch command initializes the MedTech submodule if missing, prepares local Python dependencies, builds native apps and Python types, and opens a 2x2 device grid. Open [the tutorial](tutorial/TUTORIAL.md) for guided steps. A source checkout at another commit blocks launch rather than being reset; align it explicitly without discarding local work.
 
-Without a mode flag, `./tutorial/launch_all.sh` defaults to cloud/code-server grid mode; `--cloud` remains an explicit alias. Use `--vscode` for desktop VS Code or `--web` for ordinary browser tabs. Add `--secure` only after generating the security artifacts described in the MedTech README. After setup, the demo runs in the background and the terminal prompt returns; the launcher prints its PID and log file path. Use `./tutorial/stop_all.sh` to stop it or `./tutorial/restart_all.sh` to restart it with the same mode options. Direct foreground demo-only startup remains available with `./tutorial/run_digital_or.sh --vscode` after the submodule is initialized.
+The default mode is `--cloud`; it requires a provisioned extension, explicit public `MEDTECH_CLOUD_URL`, and offline image dependencies. Use `--vscode` for desktop VS Code or `--web` for local browser tabs. Add `--secure` only after generating the artifacts described in the MedTech README. Stop with `./tutorial/stop_all.sh`, or relaunch with `./tutorial/restart_all.sh` and the same mode options.
 
 ## Verify a clean clone
 
-From a fresh clone, check that `git submodule status` reports the pinned commit without a leading `-` or `+`. Check for four responsive browser UIs, a PatientSensor process, and the ten steps in [tutorial/TUTORIAL.md](tutorial/TUTORIAL.md). The first run builds binaries, so allow time for it. Re-run `./tutorial/launch_all.sh --web` locally, or `./tutorial/launch_all.sh` in the cloud workspace, to verify the already-present submodule path. For an intentionally incomplete clone, omit `--recurse-submodules` and run the same launch command to verify auto-initialization.
+After initialization, `git submodule status -- medtech-reference-architecture` must report the recorded pin without a leading `-` or `+`. Check four responsive device UIs, Patient Sensor, and live DDS data. The first launch builds applications; later launches reuse the build.
 
-The tutorial's [content and local usage](tutorial/README.md) and [cloud integration constraints](tutorial/INTEGRATION_NOTES.md) are documented separately. The prebuilt packaging options above remain proposals. A cloud workspace needs licensed Connext runtime support, the application's runtime dependencies, and authenticated browser port routing, not a display server. Native build dependencies are needed only if building there. This script prepares a local or suitably provisioned workspace, not a hosted evaluation template.
+See [local usage](tutorial/README.md) and [cloud integration constraints](tutorial/INTEGRATION_NOTES.md). Prebuilt packaging remains a proposal. Hosted integration requires licensed runtime support and authenticated browser port routing, not a display server; live acceptance remains outstanding.

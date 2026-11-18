@@ -9,10 +9,9 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_DIR="$ROOT_DIR/medtech-reference-architecture"
 launch_args=(--vscode)
 cloud_mode=1
-secure=0
 for arg in "$@"; do
   case "$arg" in
-    --secure) launch_args+=(--secure); secure=1 ;;
+    --secure) launch_args+=(--secure) ;;
     --web) launch_args=(--web "${launch_args[@]:1}"); cloud_mode=0 ;;
     --vscode) launch_args=(--vscode "${launch_args[@]:1}"); cloud_mode=0 ;;
     --native)
@@ -52,16 +51,44 @@ if [[ -e "$REPO_DIR/.git" ]]; then
     exit 1
   fi
 fi
-echo "Initializing MedTech at $expected_commit..."
-git -C "$ROOT_DIR" submodule update --init --recursive -- medtech-reference-architecture
+if [[ ! -e "$REPO_DIR/.git" ]]; then
+  git -C "$ROOT_DIR" submodule update --init --recursive -- medtech-reference-architecture
+fi
+if [[ "$(git -C "$REPO_DIR" rev-parse HEAD)" != "$expected_commit" ]]; then
+  echo "error: MedTech does not match the recorded source pin; align the submodule explicitly without discarding local work." >&2
+  exit 1
+fi
+if [[ ! -f "$REPO_DIR/launch.py" ]]; then
+  echo "error: the existing source checkout is incomplete; restore it explicitly without discarding local work." >&2
+  exit 1
+fi
 
 if [[ "$cloud_mode" == 1 ]]; then
-  extension_dir="${MEDTECH_CODE_SERVER_EXTENSIONS:-/config/extensions}/rti.medtech-web-tabs-0.1.0"
-  mkdir -p "$extension_dir"
-  for file in package.json extension.js device-launcher.js; do
-    cp "$REPO_DIR/vscode-extension/$file" "$extension_dir/$file"
-  done
-  rm -f "$extension_dir/tutorial-view.js" "$extension_dir/tutorial.svg"
+  : "${MEDTECH_CLOUD_URL:?Set MEDTECH_CLOUD_URL to the externally accessible IDE base URL}"
+  extension_version=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$ROOT_DIR/vscode-extension/package.json")
+  extension_dir="${MEDTECH_CODE_SERVER_EXTENSIONS:-/config/extensions}/rti.medtech-web-tabs-$extension_version"
+  if [[ ! -f "$extension_dir/extension.js" ]]; then
+    echo "error: MedTech extension was not provisioned before IDE startup; recreate the pilot workspace with the matching image/source." >&2
+    exit 1
+  fi
+  (cd "$SCRIPT_DIR" && python3 - <<'PY'
+import json
+import os
+import time
+from medtech_grid import _tab_state_dir
+
+deadline = time.monotonic() + 15
+while time.monotonic() < deadline:
+    try:
+        ready = json.loads((_tab_state_dir() / "ready").read_text())
+        os.kill(int(ready["pid"]), 0)
+        break
+    except (FileNotFoundError, ProcessLookupError):
+        time.sleep(0.2)
+else:
+    raise SystemExit("error: MedTech extension did not activate in this workspace; reload the IDE once or check its extension logs.")
+PY
+  )
 elif [[ "${launch_args[0]}" == --vscode ]]; then
   if command -v code >/dev/null 2>&1; then
     code_cli=$(command -v code)
@@ -75,8 +102,8 @@ elif [[ "${launch_args[0]}" == --vscode ]]; then
     echo "error: Node.js/npm is required to package the device-grid extension." >&2
     exit 1
   fi
-  (cd "$REPO_DIR/vscode-extension" && npm ci --ignore-scripts --no-audit --no-fund && npm run package &&
-    "$code_cli" --install-extension "$(pwd)/medtech-web-tabs-0.1.0.vsix" --force)
+  (cd "$ROOT_DIR/vscode-extension" && npm ci --ignore-scripts --no-audit --no-fund && npm run package &&
+    "$code_cli" --install-extension "$(pwd)/medtech-web-tabs-$(node -p 'require("./package.json").version').vsix" --force)
   "$code_cli" "$ROOT_DIR"
 fi
 
@@ -85,11 +112,10 @@ source "${MEDTECH_VENV:-$REPO_DIR/.venv}/bin/activate"
 
 echo "Tutorial: $SCRIPT_DIR/TUTORIAL.md"
 if [[ "${launch_args[0]}" == --vscode ]]; then
-  (cd "$REPO_DIR" && python3 -c 'import sys; from launch import _open_vscode_uri; _open_vscode_uri("vscode://rti.medtech-web-tabs/session?secure=" + sys.argv[1])' "$secure")
   echo "Opening four device apps in a 2x2 VS Code grid (no tutorial panel)."
 fi
 if [[ "$cloud_mode" == 1 ]]; then
-  cloud_url="${MEDTECH_CLOUD_URL:-http://127.0.0.1:8080}"
+  cloud_url="$MEDTECH_CLOUD_URL"
   echo "Orchestrator: ${cloud_url%/}/proxy/8090/"
   echo "Arm Controller: ${cloud_url%/}/proxy/8091/"
   echo "Arm: ${cloud_url%/}/proxy/8092/"
@@ -104,5 +130,34 @@ disown "$DEMO_PID"
 
 echo "Demo supervisor PID: $DEMO_PID"
 echo "Demo log: $DEMO_LOG"
+if ! python3 - "$DEMO_PID" <<'PY'
+import json
+import os
+import sys
+import time
+import urllib.error
+import urllib.request
+
+deadline = time.monotonic() + 30
+while time.monotonic() < deadline:
+    try:
+        os.kill(int(sys.argv[1]), 0)
+        for port in range(8090, 8094):
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/state", timeout=1) as response:
+                json.load(response)
+        break
+    except ProcessLookupError:
+        raise SystemExit("error: demo supervisor exited during startup")
+    except (OSError, urllib.error.URLError):
+        time.sleep(0.2)
+else:
+    raise SystemExit("error: demo HTTP applications did not become ready within 30 seconds")
+PY
+then
+  cat "$DEMO_LOG" >&2
+  "$SCRIPT_DIR/stop_all.sh"
+  exit 1
+fi
+echo "Four device HTTP applications are ready."
 echo "Stop: $SCRIPT_DIR/stop_all.sh"
 echo "Restart: $SCRIPT_DIR/restart_all.sh"

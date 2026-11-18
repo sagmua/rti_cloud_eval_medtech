@@ -28,7 +28,7 @@ In a real hospital, an operating room is a network of independent devices -- vit
 Go ahead and launch the applications:
 
 ```sh
-[Button: ./tutorial/launch_all.sh]
+./tutorial/launch_all.sh --cloud
 ```
 
 You can see 4 interactive Operating Room applications:
@@ -47,9 +47,9 @@ Just like the DeviceStatus type in the Publish-Subscribe tutorial, every piece o
 
 ### Open Files
 
-- `[Button: Open [system_arch/Types.xml](../medtech-reference-architecture/system_arch/Types.xml)]`
-- `[Button: Open [system_arch/qos/Qos.xml](../medtech-reference-architecture/system_arch/qos/Qos.xml)]`
-- `[Button: Open [system_arch/xml_app_creation/ParticipantLibrary.xml](../medtech-reference-architecture/system_arch/xml_app_creation/ParticipantLibrary.xml)]`
+- [system_arch/Types.xml](../medtech-reference-architecture/system_arch/Types.xml)
+- [system_arch/qos/Qos.xml](../medtech-reference-architecture/system_arch/qos/Qos.xml)
+- [system_arch/xml_app_creation/ParticipantLibrary.xml](../medtech-reference-architecture/system_arch/xml_app_creation/ParticipantLibrary.xml)
 
 ### Highlights
 
@@ -66,10 +66,10 @@ The terminal-based Patient Sensor simulates a bedside monitor publishing vitals.
 
 ### Open Files
 
-- `[Button: Open [modules/01-operating-room/src/PatientSensor.cxx](../medtech-reference-architecture/modules/01-operating-room/src/PatientSensor.cxx)]`
-- `[Button: Open [modules/01-operating-room/src/PatientMonitor.py](../medtech-reference-architecture/modules/01-operating-room/src/PatientMonitor.py)]`
+- [modules/01-operating-room/src/PatientSensor.cxx](../medtech-reference-architecture/modules/01-operating-room/src/PatientSensor.cxx)
+- [modules/01-operating-room/src/PatientMonitor.py](../medtech-reference-architecture/modules/01-operating-room/src/PatientMonitor.py)
 
-**Highlight:** Notice that the publisher is written in C++ and the subscriber in Python -- they interoperate seamlessly because they share the same Connext data type, generated once from `[Button: Open [Types.xml](../medtech-reference-architecture/system_arch/Types.xml)]`.
+**Highlight:** Notice that the publisher is written in C++ and the subscriber in Python -- they interoperate seamlessly because they share the same Connext data type, generated once from [Types.xml](../medtech-reference-architecture/system_arch/Types.xml).
 
 ## 4. Explore the Surgical Arm Control Flow
 
@@ -77,8 +77,8 @@ The Arm Controller sends motor-movement commands; the Arm application receives t
 
 ### Open Files
 
-- `[Button: Open [modules/01-operating-room/src/ArmController.cxx](../medtech-reference-architecture/modules/01-operating-room/src/ArmController.cxx)]`
-- `[Button: Open [modules/01-operating-room/src/Arm.py](../medtech-reference-architecture/modules/01-operating-room/src/Arm.py)]`
+- [modules/01-operating-room/src/ArmController.cxx](../medtech-reference-architecture/modules/01-operating-room/src/ArmController.cxx)
+- [modules/01-operating-room/src/Arm.py](../medtech-reference-architecture/modules/01-operating-room/src/Arm.py)
 
 **Highlight:** In a real surgical robot, this command path has hard real-time and reliability requirements -- exactly what Connext QoS is designed to guarantee (see Step 7).
 
@@ -88,7 +88,7 @@ The Orchestrator is the room's system supervisor. It watches every device's Devi
 
 ### Open Files
 
-- `[Button: Open [modules/01-operating-room/src/Orchestrator.cxx](../medtech-reference-architecture/modules/01-operating-room/src/Orchestrator.cxx)]`
+- [modules/01-operating-room/src/Orchestrator.cxx](../medtech-reference-architecture/modules/01-operating-room/src/Orchestrator.cxx)
 
 **Highlight:** This is the pattern behind hospital-wide device management: one application can supervise many independent, vendor-built devices without any of them needing custom integration code.
 
@@ -98,7 +98,7 @@ The launch command has already set up, built, and started all five applications.
 
 ### Expected Result
 
-4 device editor tabs in a 2x2 grid show Arm Controller and Orchestrator above Arm and Patient Monitor. The tutorial remains this Markdown file; there is no tutorial panel. For desktop VS Code, launch with `[Button: ./tutorial/launch_all.sh --vscode]`; `--web` is the ordinary browser-tab fallback. Patient Sensor runs headless in the background.
+4 device editor tabs in a 2x2 grid show Arm Controller and Orchestrator above Arm and Patient Monitor. The tutorial remains this Markdown file; there is no tutorial panel. For desktop VS Code, launch with `./tutorial/launch_all.sh --vscode`; `--web` is the local browser-tab fallback. Patient Sensor runs headless in the background.
 
 ### Try This
 
@@ -109,7 +109,7 @@ The launch command has already set up, built, and started all five applications.
 - Select Arm in Orchestrator and click `Start` to relaunch it and reopen its editor tab. To restart the entire demo, run:
 
 ```sh
-[Button: ./tutorial/restart_all.sh]
+./tutorial/restart_all.sh --cloud
 ```
 
 ## 7. Configure Patient-Safety QoS
@@ -118,7 +118,7 @@ Just like the Reliable QoS step in the Publish-Subscribe tutorial, this system r
 
 ### Open Files
 
-- `[Button: Open [system_arch/qos/Qos.xml](../medtech-reference-architecture/system_arch/qos/Qos.xml)]`
+- [system_arch/qos/Qos.xml](../medtech-reference-architecture/system_arch/qos/Qos.xml)
 
 ### Highlights
 
@@ -131,7 +131,7 @@ Just like the Reliable QoS step in the Publish-Subscribe tutorial, this system r
 - Increase the Heartbeat Deadline period to 5 seconds on both the `<datawriter_qos>` and the `<datareader_qos>` and restart the demo to apply the change.
 
     ```sh
-    [Button: ./tutorial/restart_all.sh]
+    ./tutorial/restart_all.sh --cloud
     ```
 
     - Close the Patient Monitor device editor tab to stop its process. Observe the Orchestrator's offline alert after the new deadline, then select Patient Monitor and click `Start` to recover it. In `--web` mode, terminate its verified PID instead and restart the demo afterward.
