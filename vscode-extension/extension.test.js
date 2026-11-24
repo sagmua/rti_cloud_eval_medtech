@@ -367,6 +367,145 @@ test("only the focused cloud extension host consumes launcher requests", async (
     }
 });
 
+test("hosted devices share one dashboard without changing editor groups or stopping on close", async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "medtech-dashboard-test-"));
+    const panels = [];
+    const commands = new Map();
+    const calls = [];
+    const ports = { ArmController: 8091, Orchestrator: 8090, Arm: 8092, PatientMonitor: 8093 };
+    let handler;
+    const vscode = {
+        ViewColumn: { Active: -1 },
+        commands: {
+            executeCommand(name) { assert.equal(name, "setContext"); },
+            registerCommand(name, callback) { commands.set(name, callback); return {}; },
+        },
+        window: {
+            onDidChangeWindowState() { return {}; },
+            registerUriHandler(value) { handler = value; return {}; },
+            showErrorMessage(message) { assert.fail(message); },
+            createWebviewPanel(_type, title, column) {
+                assert.equal(title, "Digital Operating Room");
+                assert.equal(column.viewColumn, -1);
+                const panel = {
+                    messages: [], reveal() {}, dispose() { this.closed = true; this.onClose(); },
+                    onDidDispose(callback) { this.onClose = callback; },
+                    onDidChangeViewState(callback) { this.onViewState = callback; },
+                    webview: {
+                        onDidReceiveMessage(callback) { panel.receive = callback; },
+                        postMessage(message) { panel.messages.push(message); },
+                    },
+                };
+                panels.push(panel);
+                return panel;
+            },
+        },
+    };
+    const sandbox = {
+        module: { exports: {} }, URL, URLSearchParams, setInterval() {}, clearInterval() {},
+        process: { ...process, env: { MEDTECH_CLOUD: "1", MEDTECH_CLOUD_URL: "https://eval.example.test/workspaces/demo/ide" } },
+        require(name) {
+            if (name === "vscode") return vscode;
+            if (name === "./device-launcher") return {
+                PORTS: ports, DEVICE_NAMES: { ARM: "Arm" }, stateDirectory: () => directory,
+                DeviceLauncher: class {
+                    constructor() { this.seenDevices = new Set(); this.pendingRestores = new Map(); }
+                    findRoot() { return "/workspace"; }
+                    startMonitoring() {}
+                    stop() { calls.push("stop"); }
+                    async restoreDevice(device, wait) { calls.push([device, wait]); return "starting"; }
+                },
+            };
+            return require(name);
+        },
+    };
+    function open(title, token = "a".repeat(32)) {
+        return handler.handleUri({ path: "/open", query: new URLSearchParams({
+            title, url: `http://localhost:${ports[title]}/`, closeToken: token,
+        }).toString() });
+    }
+    try {
+        vm.runInNewContext(fs.readFileSync(path.join(__dirname, "extension.js"), "utf8"), sandbox);
+        sandbox.module.exports.activate({ subscriptions: [] });
+        for (const title of Object.keys(ports)) await open(title);
+        assert.equal(panels.length, 1);
+        const first = panels[0];
+        assert.equal((first.webview.html.match(/<iframe /g) || []).length, 4);
+        first.messages.length = 0;
+        await first.receive({ action: "ready" });
+        assert.deepEqual(first.messages.map(msg => msg.url).sort(), Object.values(ports).sort().map(
+            port => `https://eval.example.test/workspaces/demo/ide/proxy/${port}/`
+        ));
+        await handler.handleUri({ path: "/close-owned", query: `closeToken=${"a".repeat(32)}` });
+        assert.equal(first.closed, undefined);
+        first.dispose();
+        await open("Arm", "b".repeat(32));
+        assert.equal(panels.length, 1);
+        assert.deepEqual(calls, []);
+        assert.equal(fs.readdirSync(directory).some(name => name.endsWith(".close")), false);
+        commands.get("rti.medtech.openDashboard")();
+        const second = panels[1];
+        await second.receive({ action: "ready" });
+        assert.equal(second.messages.find(msg => msg.title === "Arm").token, "b".repeat(32));
+        assert.equal(second.messages.length, 4);
+        await second.receive({ action: "start", device: "ARM", requestId: 1, stopped: true });
+        assert.deepEqual(calls, [["Arm", true]]);
+        await handler.handleUri({ path: "/close", query: "" });
+        assert.equal(second.closed, true);
+        assert.deepEqual(calls, [["Arm", true], "stop"]);
+    } finally {
+        fs.rmSync(directory, { recursive: true, force: true });
+    }
+});
+
+test("dashboard reloads only a recovered pane and trusts messages from the appropriate frame", () => {
+    const sandbox = {
+        module: { exports: {} }, process, URL, URLSearchParams,
+        require(name) { return name === "vscode" ? { ViewColumn: {} } : require(name); },
+    };
+    vm.runInNewContext(fs.readFileSync(path.join(__dirname, "extension.js"), "utf8"), sandbox);
+    const origin = "https://eval.example.test";
+    const html = sandbox.module.exports.dashboardHtml(origin);
+    const script = html.match(/<script nonce="medtech-dashboard">([\s\S]*?)<\/script>/)[1];
+    const host = {};
+    const webviewOrigin = "https://webview.example.test";
+    const forwarded = [];
+    const replies = [];
+    const navigations = [];
+    const frames = ["Orchestrator", "Arm", "ArmController", "PatientMonitor"].map(id => ({
+        id,
+        contentWindow: { postMessage(data, target) { replies.push([id, data.type, target]); } },
+        set src(value) { navigations.push([id, value]); },
+        addEventListener() {},
+    }));
+    let listener;
+    vm.runInNewContext(script, {
+        URL,
+        acquireVsCodeApi: () => ({ postMessage(message) { forwarded.push(message.action); } }),
+        document: { querySelectorAll: () => frames },
+        window: { origin: webviewOrigin, addEventListener(_type, callback) { listener = callback; } },
+    });
+    const url = `${origin}/workspaces/demo/ide/proxy/8092/`;
+    const pane = { type: "medtech-pane", title: "Arm", url, token: "first" };
+    listener({ source: frames[1].contentWindow, origin, data: pane });
+    listener({ source: host, origin: webviewOrigin, data: { ...pane, url: "https://elsewhere.invalid/" } });
+    listener({ source: host, origin, data: pane });
+    assert.deepEqual(navigations, []);
+    listener({ source: host, origin: webviewOrigin, data: pane });
+    listener({ source: host, origin: webviewOrigin, data: pane });
+    listener({ source: host, origin: webviewOrigin, data: { ...pane, token: "recovered" } });
+    assert.deepEqual(navigations, [["Arm", url], ["Arm", url]]);
+    const start = { type: "medtech-device-start", device: "ARM", requestId: 1 };
+    listener({ source: frames[1].contentWindow, origin, data: start });
+    listener({ source: frames[0].contentWindow, origin: "https://elsewhere.invalid", data: start });
+    listener({ source: frames[0].contentWindow, origin, data: start });
+    assert.deepEqual(forwarded, ["ready", "start"]);
+    const reply = { type: "medtech-device-start-result", requestId: 1, status: "starting" };
+    listener({ source: frames[1].contentWindow, origin, data: reply });
+    listener({ source: host, origin: webviewOrigin, data: reply });
+    assert.deepEqual(replies, [["Orchestrator", "medtech-device-start-result", origin]]);
+});
+
 test("cloud activation ignores unrelated workspace folders before registering handlers or timers", () => {
     const vscode = {
         ViewColumn: {},

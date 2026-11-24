@@ -1,7 +1,7 @@
 {
   "name": "medtech-web-tabs",
   "displayName": "MedTech Web Tabs",
-  "description": "Opens MedTech device UIs in a 2x2 VS Code editor grid.",
+  "description": "Opens the four Digital Operating Room device interfaces in VS Code.",
   "version": "0.1.2",
   "publisher": "rti",
   "engines": {
@@ -19,6 +19,11 @@
       {
         "command": "rti.medtech.openOrchestrator",
         "title": "Digital Operating Room: Open Orchestrator"
+      },
+      {
+        "command": "rti.medtech.openDashboard",
+        "title": "Digital Operating Room: Open Dashboard",
+        "enablement": "rti.medtech.cloudDashboard"
       }
     ]
   },
