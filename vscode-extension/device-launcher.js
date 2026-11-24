@@ -187,4 +187,4 @@ class DeviceLauncher {
     }
 }
 
-module.exports = { DeviceLauncher, deviceRunning, sensorRunning, stateDirectory, DEVICE_NAMES };
+module.exports = { DeviceLauncher, deviceRunning, sensorRunning, stateDirectory, DEVICE_NAMES, PORTS };

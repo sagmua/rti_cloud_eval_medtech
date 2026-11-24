@@ -10,7 +10,7 @@ Usage: ./scripts/medtech.sh {build|start|stop|restart} [OPTIONS]
 
   build     Prepare dependencies and build Digital Operating Room (Module 01).
   start     Build if needed, start in the background, and check readiness.
-  stop      Stop this checkout's demo and close its hosted device tabs.
+  stop      Stop this checkout's demo and close its device interfaces.
   restart   Stop, then build and start again.
 
 Options for build, start and restart:
@@ -157,7 +157,9 @@ fi
 
 "$SCRIPT_DIR/run_module.sh" --setup-only ${secure_args[@]+"${secure_args[@]}"}
 
-if [[ "$display" == --vscode ]]; then
+if [[ "$cloud_mode" == 1 ]]; then
+  echo "Opening the Digital Operating Room dashboard in VS Code."
+elif [[ "$display" == --vscode ]]; then
   echo "Opening four device apps in a 2x2 VS Code grid (no tutorial panel)."
 fi
 if [[ "$cloud_mode" == 1 ]]; then

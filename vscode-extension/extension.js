@@ -26,6 +26,8 @@ let tabStateDir = path.join(os.tmpdir(), `medtech-web-tabs-${process.getuid()}`)
 const cloudWorkspace = process.env.MEDTECH_CLOUD === "1" || fs.existsSync("/app/code-server");
 let recoveryView;
 let extensionContext;
+let dashboard;
+const dashboardDevices = new Map();
 
 function recovery() {
     if (!recoveryView) {
@@ -142,6 +144,61 @@ function createAppPanel(title, targetUrl, closeToken, preserveFocus = false) {
     return panel;
 }
 
+function showDashboard(preserveFocus = false) {
+    if (dashboard) {
+        dashboard.reveal(undefined, preserveFocus);
+        return;
+    }
+    const panel = vscode.window.createWebviewPanel(
+        "rti.medtechDashboard", "Digital Operating Room",
+        { viewColumn: vscode.ViewColumn.Active, preserveFocus },
+        { enableScripts: true, retainContextWhenHidden: true }
+    );
+    dashboard = panel;
+    panel.onDidDispose(() => {
+        if (dashboard === panel) dashboard = undefined;
+    });
+    panel.onDidChangeViewState(({ webviewPanel }) => {
+        if (webviewPanel.visible) void syncDashboardPanes(panel);
+    });
+    panel.webview.onDidReceiveMessage(async message => {
+        if (dashboard !== panel) return;
+        if (message?.action === "ready") {
+            await syncDashboardPanes(panel);
+            return;
+        }
+        const { DEVICE_NAMES } = require("./device-launcher");
+        if (message?.action !== "start" || !Object.hasOwn(DEVICE_NAMES, message.device)
+                || !Number.isSafeInteger(message.requestId)) return;
+        try {
+            const status = await recovery().restoreDevice(DEVICE_NAMES[message.device], message.stopped === true);
+            if (dashboard === panel) {
+                await panel.webview.postMessage({ type: "medtech-device-start-result", requestId: message.requestId, status });
+            }
+        } catch (error) {
+            if (dashboard === panel) {
+                await panel.webview.postMessage({ type: "medtech-device-start-result", requestId: message.requestId, status: "error" });
+            }
+            vscode.window.showErrorMessage(`Unable to start device: ${error.message}`);
+        }
+    });
+    panel.webview.html = dashboardHtml(cloudTargetUrl(new URL("http://localhost:8090/")).origin);
+}
+
+async function syncDashboardPanes(panel) {
+    for (const title of dashboardDevices.keys()) {
+        if (dashboard !== panel) return;
+        await updateDashboardPane(title);
+    }
+}
+
+async function updateDashboardPane(title) {
+    const device = dashboardDevices.get(title);
+    if (dashboard && device) {
+        await dashboard.webview.postMessage({ type: "medtech-pane", title, url: device.targetUrl.href, token: device.closeToken });
+    }
+}
+
 function activate(context) {
     extensionContext = context;
     if (cloudWorkspace) {
@@ -156,6 +213,7 @@ function activate(context) {
             vscode.window.showErrorMessage(error.message);
             return;
         }
+        vscode.commands.executeCommand?.("setContext", "rti.medtech.cloudDashboard", true);
     }
     recovery().startMonitoring();
     context.subscriptions.push({ dispose: () => recoveryView?.stop() });
@@ -173,6 +231,14 @@ function activate(context) {
                 const token = parameters.get("closeToken");
                 if (uri.path === "/close-owned" && token === null) return;
                 let title = parameters.get("title");
+                if (cloudWorkspace) {
+                    // A device exit must not close the dashboard or affect its siblings.
+                    if (uri.path === "/close-owned" || token !== null || title) return;
+                    recovery().stop();
+                    dashboardDevices.clear();
+                    dashboard?.dispose();
+                    return;
+                }
                 if (token !== null) {
                     if (!/^[a-f0-9]{32}$/.test(token)) return;
                     const owned = [...appPanels].find(([, panel]) => panel.closeToken === token);
@@ -227,7 +293,12 @@ function activate(context) {
             }
 
             const title = requestedTitle || targetUrl.host;
-            if (APP_VIEW_COLUMNS[title]) {
+            if (cloudWorkspace && (!Object.hasOwn(APP_VIEW_COLUMNS, title)
+                    || targetUrl.port !== String(require("./device-launcher").PORTS[title]))) {
+                vscode.window.showErrorMessage("MedTech Dashboard received an unexpected device or port.");
+                return;
+            }
+            if (Object.hasOwn(APP_VIEW_COLUMNS, title)) {
                 const controller = recovery();
                 if (title === "Orchestrator") controller.active = true;
                 controller.seenDevices.add(title);
@@ -235,6 +306,14 @@ function activate(context) {
             }
             if (cloudWorkspace) {
                 targetUrl = cloudTargetUrl(targetUrl);
+                const previous = dashboardDevices.get(title);
+                dashboardDevices.set(title, { targetUrl, closeToken: closeToken || previous?.closeToken || null });
+                if (dashboard) {
+                    await updateDashboardPane(title);
+                } else if (!previous && dashboardDevices.size === 1) {
+                    showDashboard();
+                }
+                return;
             }
             if (APP_VIEW_COLUMNS[title]) {
                 await createDemoGrid();
@@ -259,14 +338,25 @@ function activate(context) {
     };
     context.subscriptions.push(vscode.window.registerUriHandler(uriHandler));
     if (vscode.commands.registerCommand) {
+        if (cloudWorkspace) {
+            context.subscriptions.push(vscode.commands.registerCommand("rti.medtech.openDashboard", () => {
+                if (!dashboardDevices.size) {
+                    vscode.window.showErrorMessage("Launch the Digital Operating Room demo first.");
+                    return;
+                }
+                showDashboard();
+            }));
+        }
         context.subscriptions.push(vscode.commands.registerCommand("rti.medtech.openOrchestrator", async () => {
             const controller = recovery();
-            const status = await controller.restoreDevice("Orchestrator", !appPanels.has("Orchestrator"));
+            const status = await controller.restoreDevice("Orchestrator", !cloudWorkspace && !appPanels.has("Orchestrator"));
             if (status === "running") {
                 await uriHandler.handleUri({ path: "/open", query: "title=Orchestrator&url=http%3A%2F%2Flocalhost%3A8090%2F" });
             } else if (status !== "starting") {
                 vscode.window.showErrorMessage("Unable to open Orchestrator. Launch the Digital Operating Room demo first.");
+                return;
             }
+            if (cloudWorkspace) showDashboard();
         }));
     }
     if (cloudWorkspace) {
@@ -345,6 +435,57 @@ window.addEventListener('message', event => {
 </html>`;
 }
 
+function dashboardHtml(origin) {
+    const panes = [
+        ["ArmController", "Arm Controller"], ["Orchestrator", "Orchestrator"],
+        ["Arm", "Arm"], ["PatientMonitor", "Patient Monitor"],
+    ].map(([id, label]) => `<section><h2>${label}</h2><iframe id="${id}" title="${label}"></iframe></section>`).join("");
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; frame-src ${origin}; style-src 'unsafe-inline'; script-src 'nonce-medtech-dashboard';">
+<title>Digital Operating Room</title>
+<style>
+html, body { height: 100%; margin: 0; padding: 0; }
+main { box-sizing: border-box; height: 100%; display: grid; grid-template: repeat(2, minmax(0, 1fr)) / repeat(2, minmax(0, 1fr)); gap: 4px; padding: 4px; }
+section { display: flex; flex-direction: column; min-width: 0; min-height: 0; border: 1px solid var(--vscode-panel-border); }
+h2 { font-size: 12px; margin: 0; padding: 3px 6px; }
+iframe { flex: 1; width: 100%; min-height: 0; border: 0; }
+</style>
+</head>
+<body><main>${panes}</main>
+<script nonce="medtech-dashboard">
+const api = acquireVsCodeApi();
+const origin = ${JSON.stringify(origin)};
+const frames = new Map(Array.from(document.querySelectorAll('iframe'), frame => [frame.id, frame]));
+const loaded = new Map();
+const orchestrator = frames.get('Orchestrator');
+orchestrator.addEventListener('load', () => orchestrator.contentWindow.postMessage({type: 'medtech-launcher-ready'}, origin));
+window.addEventListener('message', event => {
+    const data = event.data;
+    if (event.source === orchestrator.contentWindow) {
+        if (event.origin === origin && data?.type === 'medtech-device-start') {
+            api.postMessage({action: 'start', device: data.device, requestId: data.requestId, stopped: data.stopped === true});
+        }
+        return;
+    }
+    // Code-server delivers extension messages through its enclosing webview frame.
+    if (event.source !== window.parent) return;
+    if (data?.type === 'medtech-device-start-result') {
+        orchestrator.contentWindow.postMessage(data, origin);
+    } else if (data?.type === 'medtech-pane' && frames.has(data.title)) {
+        const url = new URL(data.url);
+        const prior = loaded.get(data.title);
+        if (url.origin !== origin || (prior?.url === url.href && prior.token === data.token)) return;
+        loaded.set(data.title, {url: url.href, token: data.token});
+        frames.get(data.title).src = url.href;
+    }
+});
+api.postMessage({action: 'ready'});
+</script></body></html>`;
+}
+
 async function deactivate() {
     await restoreDemoGroups();
     for (const title of appPanels.keys()) {
@@ -352,4 +493,4 @@ async function deactivate() {
     }
 }
 
-module.exports = { activate, deactivate, cloudTargetUrl, webviewHtml };
+module.exports = { activate, deactivate, cloudTargetUrl, webviewHtml, dashboardHtml };
