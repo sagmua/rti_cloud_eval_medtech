@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("medtech_grid", ROOT / "tutorial/medtech_grid.py")
+spec = importlib.util.spec_from_file_location("medtech_grid", ROOT / "scripts/medtech_grid.py")
 grid = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(grid)
 
@@ -185,7 +185,7 @@ def test_grid_cli_reuses_upstream_commands_and_web_urls(monkeypatch, tmp_path, s
 def test_full_grid_supervisor_stays_alive_after_devices_exit(tmp_path, stop_signal):
     code = (
         "import os,sys; from pathlib import Path; "
-        f"sys.path.insert(0, {str(ROOT / 'tutorial')!r}); import medtech_grid as grid; "
+        f"sys.path.insert(0, {str(ROOT / 'scripts')!r}); import medtech_grid as grid; "
         "grid._open_vscode_uri = lambda uri: None; "
         "print('ready', flush=True); "
         "grid._launch([[sys.executable, '-c', 'pass']], Path.cwd(), "
@@ -246,10 +246,10 @@ def test_crashed_device_is_reported_once_without_stopping_healthy_devices(
     ("--web", ["launch.py", "01-operating-room", "Arm", "--security"]),
 ])
 def test_helper_routes_grid_and_browser_modes_without_legacy_upstream_flags(tmp_path, mode, expected):
-    tutorial = tmp_path / "tutorial"
-    tutorial.mkdir()
-    runner = tutorial / "run_digital_or.sh"
-    runner.write_text((ROOT / "tutorial/run_digital_or.sh").read_text())
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    runner = scripts / "run_module.sh"
+    runner.write_text((ROOT / "scripts/run_module.sh").read_text())
     source = tmp_path / "medtech-reference-architecture"
     (source / ".venv/bin").mkdir(parents=True)
     (source / "launch.py").touch()
@@ -271,9 +271,19 @@ def test_helper_routes_grid_and_browser_modes_without_legacy_upstream_flags(tmp_
     assert arguments == expected
 
 
+@pytest.mark.parametrize("command", ["build", "start", "stop", "restart"])
+def test_public_lifecycle_commands_support_help(command):
+    result = subprocess.run(
+        [str(ROOT / "scripts/medtech.sh"), command, "--help"],
+        capture_output=True, text=True, check=True,
+    )
+    assert "Usage:" in result.stdout
+    assert not result.stderr
+
+
 def test_wrapper_does_not_reset_a_different_existing_source(tmp_path):
-    tutorial = tmp_path / "tutorial"
-    tutorial.mkdir()
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
     source = tmp_path / "medtech-reference-architecture"
     source.mkdir()
 
@@ -291,15 +301,15 @@ def test_wrapper_does_not_reset_a_different_existing_source(tmp_path):
     (source / "notes.txt").write_text("Preserve")
     git(source, *identity, "commit", "-am", "User revision")
     current = git(source, "rev-parse", "HEAD")
-    script = tutorial / "launch_all.sh"
-    script.write_text((ROOT / "tutorial/launch_all.sh").read_text())
+    script = scripts / "medtech.sh"
+    script.write_text((ROOT / "scripts/medtech.sh").read_text())
     tools = tmp_path / "tools"
     tools.mkdir()
     python = tools / "python3"
     python.write_text("#!/bin/sh\nexit 0\n")
     python.chmod(0o755)
     result = subprocess.run(
-        ["bash", str(script), "--web"], text=True, capture_output=True,
+        ["bash", str(script), "build", "--web"], text=True, capture_output=True,
         env={**os.environ, "PATH": str(tools) + os.pathsep + os.environ["PATH"]},
     )
     assert result.returncode != 0
@@ -309,21 +319,21 @@ def test_wrapper_does_not_reset_a_different_existing_source(tmp_path):
 
 
 def test_stop_only_stops_this_helpers_grid_and_can_run_twice(tmp_path):
-    tutorial = tmp_path / "tutorial"
-    tutorial.mkdir()
-    stop = tutorial / "stop_all.sh"
-    stop.write_text((ROOT / "tutorial/stop_all.sh").read_text())
-    (tutorial / "medtech_grid.py").write_text(
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    stop = scripts / "stop.sh"
+    stop.write_text((ROOT / "scripts/stop.sh").read_text())
+    (scripts / "medtech_grid.py").write_text(
         "import sys; print('ready', flush=True); sys.stdin.buffer.read()"
     )
     unrelated = tmp_path / "unrelated/medtech_grid.py"
     unrelated.parent.mkdir()
-    unrelated.write_text((tutorial / "medtech_grid.py").read_text())
+    unrelated.write_text((scripts / "medtech_grid.py").read_text())
     children = []
     env = {**os.environ, "MEDTECH_CLOUD": "0",
            "PATH": str(Path(sys.executable).parent) + os.pathsep + os.environ["PATH"]}
     try:
-        for script in [tutorial / "medtech_grid.py", unrelated]:
+        for script in [scripts / "medtech_grid.py", unrelated]:
             child = subprocess.Popen(
                 [sys.executable, str(script)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True,
             )

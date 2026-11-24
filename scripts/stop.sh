@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+case "${1:-}" in
+  -h|--help) echo "Usage: $0 (stop only this checkout's Digital Operating Room)"; exit 0 ;;
+  "") ;;
+  *) echo "error: unknown option $1" >&2; exit 2 ;;
+esac
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 python3 - "$SCRIPT_DIR/.." <<'PY'
 import json
@@ -17,7 +23,10 @@ import uuid
 root = Path(sys.argv[1]).resolve()
 repo = root / "medtech-reference-architecture"
 scripts = {
-    root / "tutorial" / "launch_all.sh",
+    root / "scripts" / "medtech.sh",
+    root / "scripts" / "run_module.sh",
+    root / "scripts" / "medtech_grid.py",
+    # Also recognize a demo started before updating the helper checkout.
     root / "tutorial" / "run_digital_or.sh",
     root / "tutorial" / "medtech_grid.py",
     repo / "modules" / "01-operating-room" / "src" / "Arm.py",
@@ -53,7 +62,7 @@ def targets():
             if not arguments or arguments[0].startswith("-"):
                 continue
             candidate = Path(arguments[0])
-            if candidate.name not in ("launch_all.sh", "run_digital_or.sh", "medtech_grid.py", "launch.py", "Arm.py", "PatientMonitor.py", "ArmController", "Orchestrator", "PatientSensor"):
+            if candidate.name not in {script.name for script in scripts} | {"launch.py", "ArmController", "Orchestrator", "PatientSensor"}:
                 continue
             if not candidate.is_absolute():
                 if sys.platform.startswith("linux"):
@@ -69,7 +78,8 @@ def targets():
                 and candidate.parent.name == "01-operating-room"
                 and candidate.name in ("ArmController", "Orchestrator", "PatientSensor")
             )
-            if candidate in scripts or is_launcher or is_binary:
+            is_start = candidate == root / "scripts" / "medtech.sh" and arguments[1:2] == ["start"]
+            if is_start or (candidate in scripts and candidate.name != "medtech.sh") or is_launcher or is_binary:
                 result[pid] = candidate.name
         except (OSError, ValueError, StopIteration, subprocess.CalledProcessError):
             continue
@@ -95,7 +105,7 @@ while remaining and time.monotonic() < deadline:
 stop(remaining, signal.SIGKILL)
 
 if os.environ.get("MEDTECH_CLOUD") == "1" or Path("/app/code-server").is_dir():
-    sys.path.insert(0, str(root / "tutorial"))
+    sys.path.insert(0, str(root / "scripts"))
     from medtech_grid import _tab_state_dir
     state_dir = _tab_state_dir()
     requests = state_dir / "requests"

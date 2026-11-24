@@ -72,7 +72,7 @@ class DeviceLauncher {
         const folders = (vscode.workspace?.workspaceFolders || []).map(folder => folder.uri.fsPath);
         for (const folder of folders) {
             for (const root of [folder, path.dirname(folder)]) {
-                const runner = path.join(root, "tutorial", "run_digital_or.sh");
+                const runner = path.join(root, "scripts", "run_module.sh");
                 if (fs.existsSync(runner)) {
                     this.root = root;
                     this.runner = runner;
@@ -139,7 +139,7 @@ class DeviceLauncher {
             this.pendingRestores.delete(name);
             return "starting";
         }
-        const args = [this.runner || path.join(this.root, "tutorial", "run_digital_or.sh"), "--launch-only", name, "--vscode"];
+        const args = [this.runner || path.join(this.root, "scripts", "run_module.sh"), "--launch-only", name, "--vscode"];
         if (this.secure) args.push("--secure");
         let child;
         try {

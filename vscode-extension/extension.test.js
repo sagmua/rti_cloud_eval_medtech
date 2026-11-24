@@ -106,7 +106,7 @@ test("Orchestrator device grid keeps the requested order regardless of API order
     const sandbox = {
         window: { addEventListener() {} },
         document: { getElementById: id => id === "devices" ? devicesEl : element(), createElement: element },
-        fetch: async () => ({ ok: false }), setInterval() {}, console,
+        fetch: async () => ({ ok: false }), setTimeout() {}, console,
     };
     vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../medtech-reference-architecture/modules/01-operating-room/web/app.js"), "utf8"), sandbox);
     const expected = ["ARM_CONTROLLER", "PATIENT_SENSOR", "ARM", "PATIENT_MONITOR"];
@@ -392,20 +392,20 @@ test("cloud recovery selects the MedTech helper runner and matches Python's cano
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), "medtech-root-test-"));
     try {
         const root = path.join(directory, "medtech-reference-architecture");
-        fs.mkdirSync(path.join(directory, "tutorial"));
+        fs.mkdirSync(path.join(directory, "scripts"));
         fs.mkdirSync(root);
-        fs.writeFileSync(path.join(directory, "tutorial", "run_digital_or.sh"), "");
-        for (const folder of [directory, root, path.join(directory, "tutorial")]) {
+        fs.writeFileSync(path.join(directory, "scripts", "run_module.sh"), "");
+        for (const folder of [directory, root, path.join(directory, "scripts")]) {
             const vscode = { workspace: { workspaceFolders: [{ uri: { fsPath: folder } }] } };
             const { DeviceLauncher } = launcherModule(vscode);
             const controller = new DeviceLauncher({ subscriptions: [] });
             assert.equal(controller.findRoot(), directory);
-            assert.equal(controller.runner, path.join(directory, "tutorial/run_digital_or.sh"));
+            assert.equal(controller.runner, path.join(directory, "scripts/run_module.sh"));
         }
         const { stateDirectory } = launcherModule({});
         const python = spawnSync(process.env.MEDTECH_TEST_PYTHON || "python3", [
             "-c", "import sys; from pathlib import Path; sys.path.insert(0, sys.argv[2]); import medtech_grid; medtech_grid.PROJECT_ROOT = Path(sys.argv[1]); print(medtech_grid._tab_state_dir())",
-            root, path.resolve(__dirname, "../tutorial"),
+            root, path.resolve(__dirname, "../scripts"),
         ], { encoding: "utf8", env: { ...process.env, MEDTECH_CLOUD: "1" } });
         assert.equal(python.status, 0, python.stderr);
         assert.equal(stateDirectory(root), python.stdout.trim());

@@ -1,29 +1,72 @@
 #!/usr/bin/env bash
-# Launches the Digital Operating Room web apps.
-#
-# Usage: ./launch_all.sh [--secure] [--cloud|--vscode|--web] (cloud by default)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_DIR="$ROOT_DIR/medtech-reference-architecture"
-launch_args=(--vscode)
-cloud_mode=1
+usage() {
+  cat <<'EOF'
+Usage: ./scripts/medtech.sh {build|start|stop|restart} [OPTIONS]
+
+  build     Prepare dependencies and build Digital Operating Room (Module 01).
+  start     Build if needed, start in the background, and check readiness.
+  stop      Stop this checkout's demo and close its hosted device tabs.
+  restart   Stop, then build and start again.
+
+Options for build, start and restart:
+  --secure   Prepare and use the upstream DDS Security demo configuration.
+  --cloud    Use the pre-provisioned Cloud Evaluation SDK, Python, and IDE.
+  --vscode   Open four device panels in desktop VS Code (default locally).
+  --web      Open local browser tabs instead of the VS Code grid.
+  --help     Show this help without changing the workspace.
+
+Cloud mode is the default when MEDTECH_CLOUD=1. Use stop, not Ctrl+C, after
+start has returned. Build does not start the demo or install the extension.
+EOF
+}
+
+action="${1:---help}"
+case "$action" in
+  -h|--help) usage; exit 0 ;;
+  build|start|stop|restart) shift ;;
+  *) echo "error: unknown command $action" >&2; usage >&2; exit 2 ;;
+esac
+cloud_mode="${MEDTECH_CLOUD:-0}"
+display=--vscode
+secure_args=()
+mode_seen=
 for arg in "$@"; do
   case "$arg" in
-    --secure) launch_args+=(--secure) ;;
-    --web) launch_args=(--web "${launch_args[@]:1}"); cloud_mode=0 ;;
-    --vscode) launch_args=(--vscode "${launch_args[@]:1}"); cloud_mode=0 ;;
-    --native)
-      echo "error: native device GUIs were removed; use --web or --cloud." >&2
-      exit 2
+    -h|--help) usage; exit 0 ;;
+    --cloud|--vscode|--web)
+      if [[ -n "$mode_seen" || "$action" == stop ]]; then
+        echo "error: specify at most one launch mode, and none for stop" >&2
+        exit 2
+      fi
+      mode_seen="$arg"
       ;;
-    --cloud) launch_args=(--vscode "${launch_args[@]:1}"); cloud_mode=1 ;;
+    --secure)
+      if [[ "$action" == stop ]]; then
+        echo "error: stop does not take --secure" >&2
+        exit 2
+      fi
+      ;;
+  esac
+  case "$arg" in
+    --secure) secure_args=(--secure) ;;
+    --web|--vscode) display="$arg"; cloud_mode=0 ;;
+    --cloud) display=--vscode; cloud_mode=1 ;;
     *) echo "error: unknown option $arg" >&2; exit 2 ;;
   esac
 done
 export MEDTECH_CLOUD="$cloud_mode"
 
+case "$action" in
+  stop) exec "$SCRIPT_DIR/stop.sh" ;;
+  restart) "$SCRIPT_DIR/stop.sh" ;;
+esac
+
+if [[ "$action" != build ]]; then
 python3 - <<'PY'
 import socket
 
@@ -41,6 +84,7 @@ if busy:
     raise SystemExit("error: demo ports already in use: " + ", ".join(busy)
                      + ". Stop the existing demo before launching another one.")
 PY
+fi
 
 expected_commit=$(git -C "$ROOT_DIR" rev-parse :medtech-reference-architecture)
 if [[ -e "$REPO_DIR/.git" ]]; then
@@ -61,6 +105,10 @@ fi
 if [[ ! -f "$REPO_DIR/launch.py" ]]; then
   echo "error: the existing source checkout is incomplete; restore it explicitly without discarding local work." >&2
   exit 1
+fi
+
+if [[ "$action" == build ]]; then
+  exec "$SCRIPT_DIR/run_module.sh" --setup-only ${secure_args[@]+"${secure_args[@]}"}
 fi
 
 if [[ "$cloud_mode" == 1 ]]; then
@@ -89,7 +137,7 @@ else:
     raise SystemExit("error: MedTech extension did not activate in this workspace; reload the IDE once or check its extension logs.")
 PY
   )
-elif [[ "${launch_args[0]}" == --vscode ]]; then
+elif [[ "$display" == --vscode ]]; then
   if command -v code >/dev/null 2>&1; then
     code_cli=$(command -v code)
   elif [[ -x "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" ]]; then
@@ -107,11 +155,9 @@ elif [[ "${launch_args[0]}" == --vscode ]]; then
   "$code_cli" "$ROOT_DIR"
 fi
 
-"$SCRIPT_DIR/run_digital_or.sh" --setup-only
-source "${MEDTECH_VENV:-$REPO_DIR/.venv}/bin/activate"
+"$SCRIPT_DIR/run_module.sh" --setup-only ${secure_args[@]+"${secure_args[@]}"}
 
-echo "Tutorial: $SCRIPT_DIR/TUTORIAL.md"
-if [[ "${launch_args[0]}" == --vscode ]]; then
+if [[ "$display" == --vscode ]]; then
   echo "Opening four device apps in a 2x2 VS Code grid (no tutorial panel)."
 fi
 if [[ "$cloud_mode" == 1 ]]; then
@@ -124,7 +170,7 @@ fi
 
 echo "Starting Digital Operating Room demo in the background..."
 DEMO_LOG=$(mktemp "${TMPDIR:-/tmp}/medtech-digital-or.XXXXXX")
-nohup "$SCRIPT_DIR/run_digital_or.sh" --launch-only "${launch_args[@]}" >"$DEMO_LOG" 2>&1 </dev/null &
+nohup "$SCRIPT_DIR/run_module.sh" --launch-only "$display" ${secure_args[@]+"${secure_args[@]}"} >"$DEMO_LOG" 2>&1 </dev/null &
 DEMO_PID=$!
 disown "$DEMO_PID"
 
@@ -155,9 +201,12 @@ else:
 PY
 then
   cat "$DEMO_LOG" >&2
-  "$SCRIPT_DIR/stop_all.sh"
+  "$SCRIPT_DIR/stop.sh"
   exit 1
 fi
 echo "Four device HTTP applications are ready."
-echo "Stop: $SCRIPT_DIR/stop_all.sh"
-echo "Restart: $SCRIPT_DIR/restart_all.sh"
+echo "Stop: $SCRIPT_DIR/medtech.sh stop"
+printf 'Restart: %q restart' "$SCRIPT_DIR/medtech.sh"
+if [[ -n "$mode_seen" ]]; then printf ' %s' "$mode_seen"; fi
+if [[ "${secure_args[0]:-}" == --secure ]]; then printf ' --secure'; fi
+printf '\n'
