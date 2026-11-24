@@ -195,7 +195,9 @@ async function syncDashboardPanes(panel) {
 async function updateDashboardPane(title) {
     const device = dashboardDevices.get(title);
     if (dashboard && device) {
-        await dashboard.webview.postMessage({ type: "medtech-pane", title, url: device.targetUrl.href, token: device.closeToken });
+        await dashboard.webview.postMessage({
+            type: "medtech-pane", title, url: device.online ? device.targetUrl.href : null, token: device.closeToken,
+        });
     }
 }
 
@@ -232,8 +234,17 @@ function activate(context) {
                 if (uri.path === "/close-owned" && token === null) return;
                 let title = parameters.get("title");
                 if (cloudWorkspace) {
-                    // A device exit must not close the dashboard or affect its siblings.
-                    if (uri.path === "/close-owned" || token !== null || title) return;
+                    if (token !== null) {
+                        if (!/^[a-f0-9]{32}$/.test(token)) return;
+                        const owned = [...dashboardDevices].find(([, device]) => device.closeToken === token);
+                        if (owned) {
+                            const [name, device] = owned;
+                            device.online = false;
+                            await updateDashboardPane(name);
+                        }
+                        return;
+                    }
+                    if (title) return;
                     recovery().stop();
                     dashboardDevices.clear();
                     dashboard?.dispose();
@@ -307,7 +318,7 @@ function activate(context) {
             if (cloudWorkspace) {
                 targetUrl = cloudTargetUrl(targetUrl);
                 const previous = dashboardDevices.get(title);
-                dashboardDevices.set(title, { targetUrl, closeToken: closeToken || previous?.closeToken || null });
+                dashboardDevices.set(title, { targetUrl, closeToken: closeToken || previous?.closeToken || null, online: true });
                 if (dashboard) {
                     await updateDashboardPane(title);
                 } else if (!previous && dashboardDevices.size === 1) {
@@ -439,7 +450,7 @@ function dashboardHtml(origin) {
     const panes = [
         ["ArmController", "Arm Controller"], ["Orchestrator", "Orchestrator"],
         ["Arm", "Arm"], ["PatientMonitor", "Patient Monitor"],
-    ].map(([id, label]) => `<section><h2>${label}</h2><iframe id="${id}" title="${label}"></iframe></section>`).join("");
+    ].map(([id, label]) => `<section><h2>${label}</h2><p role="status">Waiting for device...</p><iframe id="${id}" title="${label}" hidden></iframe></section>`).join("");
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -451,6 +462,7 @@ html, body { height: 100%; margin: 0; padding: 0; }
 main { box-sizing: border-box; height: 100%; display: grid; grid-template: repeat(2, minmax(0, 1fr)) / repeat(2, minmax(0, 1fr)); gap: 4px; padding: 4px; }
 section { display: flex; flex-direction: column; min-width: 0; min-height: 0; border: 1px solid var(--vscode-panel-border); }
 h2 { font-size: 12px; margin: 0; padding: 3px 6px; }
+p { margin: auto; }
 iframe { flex: 1; width: 100%; min-height: 0; border: 0; }
 </style>
 </head>
@@ -476,11 +488,23 @@ window.addEventListener('message', event => {
     if (data?.type === 'medtech-device-start-result') {
         orchestrator.contentWindow.postMessage(data, origin);
     } else if (data?.type === 'medtech-pane' && frames.has(data.title)) {
+        const frame = frames.get(data.title);
+        const status = frame.previousElementSibling;
+        if (data.url === null) {
+            frame.hidden = true;
+            frame.removeAttribute('src');
+            loaded.delete(data.title);
+            status.textContent = 'Offline';
+            status.hidden = false;
+            return;
+        }
         const url = new URL(data.url);
         const prior = loaded.get(data.title);
         if (url.origin !== origin || (prior?.url === url.href && prior.token === data.token)) return;
         loaded.set(data.title, {url: url.href, token: data.token});
-        frames.get(data.title).src = url.href;
+        frame.src = url.href;
+        frame.hidden = false;
+        status.hidden = true;
     }
 });
 api.postMessage({action: 'ready'});

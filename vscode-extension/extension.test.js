@@ -427,7 +427,7 @@ test("hosted devices share one dashboard without changing editor groups or stopp
     try {
         vm.runInNewContext(fs.readFileSync(path.join(__dirname, "extension.js"), "utf8"), sandbox);
         sandbox.module.exports.activate({ subscriptions: [] });
-        for (const title of Object.keys(ports)) await open(title);
+        for (const [index, title] of Object.keys(ports).entries()) await open(title, String(index).repeat(32));
         assert.equal(panels.length, 1);
         const first = panels[0];
         assert.equal((first.webview.html.match(/<iframe /g) || []).length, 4);
@@ -436,7 +436,11 @@ test("hosted devices share one dashboard without changing editor groups or stopp
         assert.deepEqual(first.messages.map(msg => msg.url).sort(), Object.values(ports).sort().map(
             port => `https://eval.example.test/workspaces/demo/ide/proxy/${port}/`
         ));
-        await handler.handleUri({ path: "/close-owned", query: `closeToken=${"a".repeat(32)}` });
+        first.messages.length = 0;
+        for (const token of ["2", "0"]) {
+            await handler.handleUri({ path: "/close-owned", query: `closeToken=${token.repeat(32)}` });
+        }
+        assert.deepEqual(first.messages.map(msg => [msg.title, msg.url]), [["Arm", null], ["ArmController", null]]);
         assert.equal(first.closed, undefined);
         first.dispose();
         await open("Arm", "b".repeat(32));
@@ -446,8 +450,13 @@ test("hosted devices share one dashboard without changing editor groups or stopp
         commands.get("rti.medtech.openDashboard")();
         const second = panels[1];
         await second.receive({ action: "ready" });
-        assert.equal(second.messages.find(msg => msg.title === "Arm").token, "b".repeat(32));
+        const arm = second.messages.find(msg => msg.title === "Arm");
+        assert.equal(arm.token, "b".repeat(32));
+        assert.match(arm.url, /\/8092\/$/);
+        assert.equal(second.messages.find(msg => msg.title === "ArmController").url, null);
         assert.equal(second.messages.length, 4);
+        await handler.handleUri({ path: "/close-owned", query: `closeToken=${"2".repeat(32)}` });
+        assert.equal(second.messages.length, 4, "An old process exit must not mark its replacement offline");
         await second.receive({ action: "start", device: "ARM", requestId: 1, stopped: true });
         assert.deepEqual(calls, [["Arm", true]]);
         await handler.handleUri({ path: "/close", query: "" });
@@ -475,6 +484,8 @@ test("dashboard reloads only a recovered pane and trusts messages from the appro
     const frames = ["Orchestrator", "Arm", "ArmController", "PatientMonitor"].map(id => ({
         id,
         contentWindow: { postMessage(data, target) { replies.push([id, data.type, target]); } },
+        previousElementSibling: {},
+        removeAttribute(name) { assert.equal(name, "src"); navigations.push([id, null]); },
         set src(value) { navigations.push([id, value]); },
         addEventListener() {},
     }));
@@ -493,8 +504,13 @@ test("dashboard reloads only a recovered pane and trusts messages from the appro
     assert.deepEqual(navigations, []);
     listener({ source: host, origin: webviewOrigin, data: pane });
     listener({ source: host, origin: webviewOrigin, data: pane });
+    listener({ source: host, origin: webviewOrigin, data: { ...pane, url: null } });
+    assert.equal(frames[1].hidden, true);
+    assert.equal(frames[1].previousElementSibling.textContent, "Offline");
     listener({ source: host, origin: webviewOrigin, data: { ...pane, token: "recovered" } });
-    assert.deepEqual(navigations, [["Arm", url], ["Arm", url]]);
+    assert.equal(frames[1].hidden, false);
+    assert.equal(frames[1].previousElementSibling.hidden, true);
+    assert.deepEqual(navigations, [["Arm", url], ["Arm", null], ["Arm", url]]);
     const start = { type: "medtech-device-start", device: "ARM", requestId: 1 };
     listener({ source: frames[1].contentWindow, origin, data: start });
     listener({ source: frames[0].contentWindow, origin: "https://elsewhere.invalid", data: start });
