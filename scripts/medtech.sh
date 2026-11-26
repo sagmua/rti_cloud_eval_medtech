@@ -11,10 +11,10 @@ Usage: ./scripts/medtech.sh {build|start|stop|restart} [OPTIONS]
   build     Prepare dependencies and build Digital Operating Room (Module 01).
   start     Build if needed, start in the background, and check readiness.
   stop      Stop this checkout's demo and close its device interfaces.
-  restart   Stop, then build and start again.
+  restart   Validate the existing build, then stop and relaunch without building.
 
 Options for build, start and restart:
-  --secure   Prepare and use the upstream DDS Security demo configuration.
+  --secure   Use DDS Security. Restart requires a prior build --secure or start --secure.
   --cloud    Use the pre-provisioned Cloud Evaluation SDK, Python, and IDE.
   --vscode   Open four device panels in desktop VS Code (default locally).
   --web      Open local browser tabs instead of the VS Code grid.
@@ -22,6 +22,7 @@ Options for build, start and restart:
 
 Cloud mode is the default when MEDTECH_CLOUD=1. Use stop, not Ctrl+C, after
 start has returned. Build does not start the demo or install the extension.
+After changing C++ sources or DDS types, run build before restart.
 EOF
 }
 
@@ -61,12 +62,11 @@ for arg in "$@"; do
 done
 export MEDTECH_CLOUD="$cloud_mode"
 
-case "$action" in
-  stop) exec "$SCRIPT_DIR/stop.sh" ;;
-  restart) "$SCRIPT_DIR/stop.sh" ;;
-esac
+if [[ "$action" == stop ]]; then
+  exec "$SCRIPT_DIR/stop.sh"
+fi
 
-if [[ "$action" != build ]]; then
+check_demo_ports() {
 python3 - <<'PY'
 import socket
 
@@ -84,6 +84,10 @@ if busy:
     raise SystemExit("error: demo ports already in use: " + ", ".join(busy)
                      + ". Stop the existing demo before launching another one.")
 PY
+}
+
+if [[ "$action" == start ]]; then
+  check_demo_ports
 fi
 
 expected_commit=$(git -C "$ROOT_DIR" rev-parse :medtech-reference-architecture)
@@ -146,16 +150,33 @@ elif [[ "$display" == --vscode ]]; then
     echo "error: VS Code CLI not found; install it or run with --web." >&2
     exit 1
   fi
-  if ! command -v npm >/dev/null 2>&1; then
-    echo "error: Node.js/npm is required to package the device-grid extension." >&2
-    exit 1
+  if [[ "$action" == restart ]]; then
+    if ! "$code_cli" --list-extensions | grep -Fxi 'rti.medtech-web-tabs' >/dev/null; then
+      echo "error: MedTech extension is not installed; run ./scripts/medtech.sh start --vscode first or use restart --web." >&2
+      exit 1
+    fi
+  else
+    if ! command -v npm >/dev/null 2>&1; then
+      echo "error: Node.js/npm is required to package the device-grid extension." >&2
+      exit 1
+    fi
+    (cd "$ROOT_DIR/vscode-extension" && npm ci --ignore-scripts --no-audit --no-fund && npm run package &&
+      "$code_cli" --install-extension "$(pwd)/medtech-web-tabs-$(node -p 'require("./package.json").version').vsix" --force)
+    "$code_cli" "$ROOT_DIR"
   fi
-  (cd "$ROOT_DIR/vscode-extension" && npm ci --ignore-scripts --no-audit --no-fund && npm run package &&
-    "$code_cli" --install-extension "$(pwd)/medtech-web-tabs-$(node -p 'require("./package.json").version').vsix" --force)
-  "$code_cli" "$ROOT_DIR"
 fi
 
-"$SCRIPT_DIR/run_module.sh" --setup-only ${secure_args[@]+"${secure_args[@]}"}
+if [[ "$action" == restart ]]; then
+  "$SCRIPT_DIR/run_module.sh" --check-launch ${secure_args[@]+"${secure_args[@]}"}
+  "$SCRIPT_DIR/stop.sh"
+  check_demo_ports
+  if [[ "$cloud_mode" != 1 && "$display" == --vscode ]]; then
+    "$code_cli" "$ROOT_DIR"
+  fi
+  echo "Reusing the existing Module 01 build; reloading runtime configuration."
+else
+  "$SCRIPT_DIR/run_module.sh" --setup-only ${secure_args[@]+"${secure_args[@]}"}
+fi
 
 if [[ "$cloud_mode" == 1 ]]; then
   echo "Opening the Digital Operating Room dashboard in VS Code."

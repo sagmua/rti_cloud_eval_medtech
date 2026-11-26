@@ -10,11 +10,12 @@ launch_args=()
 for arg in "$@"; do
   case "$arg" in
     -h|--help)
-      echo "Usage (internal): $0 {--setup-only|--launch-only} [--secure] [--vscode|--web] [DEVICE]"
+      echo "Usage (internal): $0 {--setup-only|--check-launch|--launch-only} [--secure] [--vscode|--web] [DEVICE]"
       exit 0
       ;;
     --setup-only) mode=setup ;;
     --launch-only) mode=launch ;;
+    --check-launch) mode=check ;;
     --secure) secure=1; launch_args+=(--security) ;;
     --vscode) grid=1 ;;
     --web) grid=0 ;;
@@ -23,7 +24,7 @@ for arg in "$@"; do
   esac
 done
 if [[ -z "$mode" ]]; then
-  echo "error: specify --setup-only or --launch-only; use medtech.sh for the public command" >&2
+  echo "error: specify --setup-only, --check-launch or --launch-only; use medtech.sh for the public command" >&2
   exit 2
 fi
 
@@ -56,19 +57,23 @@ cloud_mode="${MEDTECH_CLOUD:-0}"
 
 if [[ "$cloud_mode" != 1 ]]; then
   venv_dir="${MEDTECH_VENV:-$REPO_DIR/.venv}"
-  if [[ "$mode" != launch && ! -d "$venv_dir" ]]; then
+  if [[ "$mode" == setup && ! -d "$venv_dir" ]]; then
     echo "Creating virtual environment..."
     python3 -m venv "$venv_dir"
   fi
   if [[ ! -f "$venv_dir/bin/activate" ]]; then
-    echo "error: virtual environment missing; run setup first." >&2
+    echo "error: virtual environment missing; run ./scripts/medtech.sh build first." >&2
     exit 1
   fi
   # shellcheck disable=SC1091
   source "$venv_dir/bin/activate"
 fi
 
-if [[ "$mode" != launch ]]; then
+if [[ "$mode" == check ]]; then
+  exec python3 "$SCRIPT_DIR/check_module_build.py" "$secure"
+fi
+
+if [[ "$mode" == setup ]]; then
   if [[ "$cloud_mode" == 1 ]]; then
     python3 -c 'import rti.connextdds, rti.idl' || {
       echo "error: shared Playground Python cannot import the Connext bindings." >&2

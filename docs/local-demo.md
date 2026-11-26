@@ -13,9 +13,9 @@ You need a licensed RTI Connext Professional 7.7.0 installation with target libr
 ./scripts/medtech.sh start --web
 ```
 
-To try DDS Security on a desktop installation with the Security Plugins and OpenSSL tools, add `--secure` to `start` or `restart` (for example, `./scripts/medtech.sh restart --vscode --secure`). The helper invokes the upstream certificate setup with demo credentials; do not use those credentials in production.
+To try DDS Security on a desktop installation with the Security Plugins and OpenSSL tools, use `./scripts/medtech.sh start --vscode --secure` for a first launch. If the demo is already running, run `./scripts/medtech.sh build --secure` to prepare the demo credentials, then `./scripts/medtech.sh restart --vscode --secure` to switch modes. Do not use these credentials in production.
 
-All starts run in the background after readiness checks. Use `./scripts/medtech.sh stop`; closing the terminal or a standalone browser tab does not stop the demo. To apply changes or switch modes, use `./scripts/medtech.sh restart` with the desired flags. Run `./scripts/medtech.sh --help` for options.
+All starts run in the background after readiness checks. Use `./scripts/medtech.sh stop`; closing the terminal or a standalone browser tab does not stop the demo. Use `./scripts/medtech.sh restart` with your display and security flags to reload runtime XML without rebuilding. After changing C++ code or DDS types, run `./scripts/medtech.sh build` before restarting. Run `./scripts/medtech.sh --help` for options.
 
 ## Explore
 

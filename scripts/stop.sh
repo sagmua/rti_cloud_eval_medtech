@@ -103,6 +103,13 @@ while remaining and time.monotonic() < deadline:
     if remaining:
         time.sleep(0.1)
 stop(remaining, signal.SIGKILL)
+deadline = time.monotonic() + 1
+while remaining:
+    remaining.intersection_update(targets())
+    if remaining:
+        if time.monotonic() >= deadline:
+            raise SystemExit(f"error: demo processes still running after stop: {sorted(remaining)}")
+        time.sleep(0.1)
 
 if os.environ.get("MEDTECH_CLOUD") == "1" or Path("/app/code-server").is_dir():
     sys.path.insert(0, str(root / "scripts"))

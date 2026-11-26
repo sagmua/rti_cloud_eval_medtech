@@ -281,6 +281,48 @@ def test_public_lifecycle_commands_support_help(command):
     assert not result.stderr
 
 
+@pytest.mark.parametrize(
+    "secure, check_status, stop_status, expected",
+    [
+        (False, 0, 0, ["--check-launch", "stop", "--launch-only --web"]),
+        (True, 0, 0, ["--check-launch --secure", "stop", "--launch-only --web --secure"]),
+        (True, 1, 0, ["--check-launch --secure"]),
+        (False, 0, 1, ["--check-launch", "stop"]),
+    ],
+)
+def test_restart_preflights_then_relaunches_without_setup(tmp_path, secure, check_status, stop_status, expected):
+    scripts = tmp_path / "scripts"
+    tools = tmp_path / "tools"
+    source = tmp_path / "medtech-reference-architecture"
+    for directory in (scripts, tools, source):
+        directory.mkdir()
+    (source / ".git").touch()
+    (source / "launch.py").touch()
+    wrapper = scripts / "medtech.sh"
+    wrapper.write_text((ROOT / "scripts/medtech.sh").read_text())
+
+    def stub(path, code):
+        path.write_text("#!/bin/bash\n" + code + "\n")
+        path.chmod(0o755)
+
+    stub(tools / "git", "echo fixture-pin")
+    stub(tools / "python3", 'if [[ $# == 2 ]]; then for i in {1..50}; do '
+         'grep -q "^--launch-only" "$TRACE" && exit 0; sleep 0.02; done; exit 1; fi')
+    stub(scripts / "run_module.sh", 'echo "$*" >> "$TRACE"; '
+         'case "$1" in --check-launch) exit "$CHECK_STATUS";; --launch-only) exit 0;; *) exit 97;; esac')
+    stub(scripts / "stop.sh", 'echo stop >> "$TRACE"; exit "$STOP_STATUS"')
+
+    trace = tmp_path / "trace"
+    result = subprocess.run(
+        ["bash", str(wrapper), "restart", "--web", *(["--secure"] if secure else [])],
+        capture_output=True, text=True, timeout=10,
+        env={**os.environ, "PATH": str(tools) + os.pathsep + os.environ["PATH"],
+             "TRACE": str(trace), "CHECK_STATUS": str(check_status), "STOP_STATUS": str(stop_status)},
+    )
+    assert result.returncode == (check_status or stop_status), result.stderr
+    assert trace.read_text().splitlines() == expected
+
+
 def test_wrapper_does_not_reset_a_different_existing_source(tmp_path):
     scripts = tmp_path / "scripts"
     scripts.mkdir()
